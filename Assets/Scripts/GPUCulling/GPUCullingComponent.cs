@@ -57,9 +57,8 @@ namespace GPUPipeline.Culling
     } //48
     public struct Bounds
     {
-        public Vector3 extent;  //12
         public Matrix4x4 localToWorldMatrix;    //64
-        public const int SIZE = 76;
+        public const int SIZE = 64;
     }//76
     #endregion
 }

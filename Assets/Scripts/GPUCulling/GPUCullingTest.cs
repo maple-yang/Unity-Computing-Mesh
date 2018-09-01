@@ -30,7 +30,7 @@ namespace GPUPipeline.Culling
 
         private void Awake()
         {
-            PipelineFunction.InitBuffers(ref buffers, allExtents, localToWorldMatrices, mesh);
+            PipelineFunction.InitBuffers(ref buffers, localToWorldMatrices, mesh);
         }
 
         protected override void OnEnable()
@@ -64,7 +64,7 @@ namespace GPUPipeline.Culling
         public override void OnPreRenderEvent()
         {
             PipelineFunction.SetCullingBuffer(ref buffers);
-            PipelineFunction.RunCulling(ref viewMatrix, ref projMatrix, ref rtProjMatrix, ref buffers);
+            PipelineFunction.RunCulling(ref viewMatrix, ref projMatrix, ref rtProjMatrix, ref buffers, mesh.bounds.extents);
             drawFunction();
         }
     }

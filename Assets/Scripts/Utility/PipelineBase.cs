@@ -6,6 +6,13 @@ using GPUPipeline.Culling;
 
 public class PipelineBase : MonoBehaviour {
     public static List<PipeLine> onPreRenderEvents = new List<PipeLine>(10);
+    public static RenderTargetIdentifier[] gBufferIdentifier = new RenderTargetIdentifier[]
+    {
+                    BuiltinRenderTextureType.GBuffer0,
+                    BuiltinRenderTextureType.GBuffer1,
+                    BuiltinRenderTextureType.GBuffer2,
+                    BuiltinRenderTextureType.GBuffer3
+    };
     private Camera cam;
     private CommandBuffer geometryBuffer;
     private CommandBuffer motionVectorBuffer;
@@ -41,9 +48,12 @@ public class PipelineBase : MonoBehaviour {
         PipeLine.rtProjMatrix = GL.GetGPUProjectionMatrix(projMat, true);
         PipeLine.lastVPMatrix = PipeLine.rtProjMatrix * PipeLine.viewMatrix;
         PipeLine.viewMatrix = Camera.current.worldToCameraMatrix;
-        PipelineFunction.geometryCommandBuffer = geometryBuffer;
-        PipelineFunction.motionVectorsCommandBuffer = motionVectorBuffer;
-        PipelineFunction.ClearBuffer();
+        PipeLine.geometryCommandBuffer = geometryBuffer;
+        PipeLine.beforeImageOpaqueBuffer = motionVectorBuffer;
+        PipeLine.geometryCommandBuffer.Clear();
+        PipeLine.beforeImageOpaqueBuffer.Clear();
+        PipeLine.geometryCommandBuffer.SetRenderTarget(gBufferIdentifier, BuiltinRenderTextureType.CameraTarget);
+        PipeLine.beforeImageOpaqueBuffer.SetRenderTarget(BuiltinRenderTextureType.MotionVectors, BuiltinRenderTextureType.CameraTarget);
         foreach (var i in onPreRenderEvents)
         {
             i.OnPreRenderEvent();

@@ -11,6 +11,8 @@ public abstract class PipeLine : MonoBehaviour {
     public static Matrix4x4 rtProjMatrix;
     public static Matrix4x4 lastVPMatrix;
     public static Matrix4x4 viewMatrix;
+    public static CommandBuffer geometryCommandBuffer;
+    public static CommandBuffer beforeImageOpaqueBuffer;
 
     protected virtual void OnEnable()
     {

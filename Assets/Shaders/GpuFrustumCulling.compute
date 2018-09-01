@@ -3,13 +3,13 @@
 #pragma kernel GetLast
 #include "UnityCG.cginc"
 struct Bounds{
-    float3 extent;
     float4x4 ObjectToWorld;
 };
 struct Transform{
     float4x4 ObjectToWorld;
     float4x4 MVP;
 };
+float3 _Extent;
 inline float PlaneTest(float4 plane, Bounds bound){
     float3 right = float3(bound.ObjectToWorld._m00, bound.ObjectToWorld._m10, bound.ObjectToWorld._m20);
     float3 up = float3(bound.ObjectToWorld._m01, bound.ObjectToWorld._m11, bound.ObjectToWorld._m21);
@@ -17,7 +17,7 @@ inline float PlaneTest(float4 plane, Bounds bound){
     float3 position = float3(bound.ObjectToWorld._m03, bound.ObjectToWorld._m13, bound.ObjectToWorld._m23);
     float r = dot(position, plane.xyz); 
     float3 absNormal = float3(abs(dot(plane.xyz, right)), abs(dot(plane.xyz, up)), abs(dot(plane.xyz, forward)));
-    float f = dot(absNormal, bound.extent);
+    float f = dot(absNormal, _Extent);
     return ((r - f) < -plane.w) ? 1 : 0;
 }
 #define PLANECOUNT 6
@@ -31,21 +31,21 @@ uint _Count;
 float4x4 _VPMatrix;
 
 [numthreads(128, 1, 1)]
-void CSMain (uint3 id : SV_DispatchThreadID)
+void CSMain (uint id : SV_DispatchThreadID)
 {
-    if(id.x > _Count)
+    if(id > _Count)
     {
         return;
     }
     float result = 1;
     [unroll]
     for(int y = 0; y < PLANECOUNT; ++y){
-        result *= PlaneTest(planes[y], allBounds[id.x]);
+        result *= PlaneTest(planes[y], allBounds[id]);
     }
     if(result > 0.5){
         int currentIndex = 0;
-        InterlockedAdd(sizeBuffer[0], 1, /*out*/currentIndex);
-        float4x4 ObjectToWorld = allBounds[id.x].ObjectToWorld;
+        InterlockedAdd(sizeBuffer[0], 1, currentIndex);
+        float4x4 ObjectToWorld = allBounds[id].ObjectToWorld;
         Transform trans;
         trans.ObjectToWorld = ObjectToWorld;
         trans.MVP = mul(_VPMatrix, ObjectToWorld);
@@ -53,15 +53,15 @@ void CSMain (uint3 id : SV_DispatchThreadID)
     }
 }
 RWStructuredBuffer<float4x4> lastFrameMatrices;
-
+//GroupMemoryBarrierWithGroupSync();
 float4x4 LAST_VP_MATRIX;
 [numthreads(128, 1, 1)]
-void GetLast(uint3 id : SV_DispatchThreadID)
+void GetLast(uint id : SV_DispatchThreadID)
 {
-    if(id.x > _Count)
+    if(id > _Count)
     {
         return;
     }
-    float4x4 objectToWorld =  Transforms[id.x].ObjectToWorld;
-    lastFrameMatrices[id.x] = mul(LAST_VP_MATRIX, objectToWorld);
+    float4x4 objectToWorld =  Transforms[id].ObjectToWorld;
+    lastFrameMatrices[id] = mul(LAST_VP_MATRIX, objectToWorld);
 }

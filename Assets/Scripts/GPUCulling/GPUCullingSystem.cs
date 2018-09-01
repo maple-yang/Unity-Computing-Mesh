@@ -17,15 +17,6 @@ namespace GPUPipeline.Culling
         public static uint[] currentDrawSize = new uint[] { 0 };
         private static Plane[] planes = new Plane[6];
         private static Vector4[] planesVector = new Vector4[6];
-        public static CommandBuffer geometryCommandBuffer;
-        public static CommandBuffer motionVectorsCommandBuffer;
-        public static RenderTargetIdentifier[] gBufferIdentifier = new RenderTargetIdentifier[]
-            {
-                    BuiltinRenderTextureType.GBuffer0,
-                    BuiltinRenderTextureType.GBuffer1,
-                    BuiltinRenderTextureType.GBuffer2,
-                    BuiltinRenderTextureType.GBuffer3
-            };
         public static void GetCullingPlanes(ref Matrix4x4 vp, Plane[] cullingPlanes)
         {
             Matrix4x4 invVp = vp.inverse;
@@ -71,10 +62,11 @@ namespace GPUPipeline.Culling
         /// <param name="view"></param> World To View Matrix
         /// <param name="proj"></param> View To NDC Matrix
         /// <param name="buffers"></param> Buffers
-        public static void RunCulling(ref Matrix4x4 view, ref Matrix4x4 proj, ref Matrix4x4 rtProj, ref CullingBuffers buffers)
+        public static void RunCulling(ref Matrix4x4 view, ref Matrix4x4 proj, ref Matrix4x4 rtProj, ref CullingBuffers buffers, Vector3 extent)
         {
             Matrix4x4 vp = proj * view;
             buffers.cullingShader.SetMatrix(ShaderIDs._VPMatrix, rtProj * view);
+            buffers.cullingShader.SetVector(ShaderIDs._Extent, extent);
             GetCullingPlanes(ref vp, planes);
             for (int i = 0; i < 6; ++i)
             {
@@ -92,13 +84,13 @@ namespace GPUPipeline.Culling
 
             int instanceCount = cullingBuffers.currentCullingResult;
             if (instanceCount == 0) return;
-            geometryCommandBuffer.SetGlobalBuffer(ShaderIDs.Transforms, cullingBuffers.resultBuffer);
-            geometryCommandBuffer.SetGlobalBuffer(ShaderIDs.VertexBuffer, cullingBuffers.vertexBuffer);
-            motionVectorsCommandBuffer.SetGlobalBuffer(ShaderIDs.lastFrameMatrices, cullingBuffers.lastFrameMatricesBuffer);
-            motionVectorsCommandBuffer.SetGlobalBuffer(ShaderIDs.Transforms, cullingBuffers.resultBuffer);
-            motionVectorsCommandBuffer.SetGlobalBuffer(ShaderIDs.VertexBuffer, cullingBuffers.vertexBuffer);
-            geometryCommandBuffer.DrawProcedural(Matrix4x4.identity, proceduralMaterial, 0, MeshTopology.Triangles, cullingBuffers.vertexBuffer.count, instanceCount);
-            motionVectorsCommandBuffer.DrawProcedural(Matrix4x4.identity, proceduralMaterial, 1, MeshTopology.Triangles, cullingBuffers.vertexBuffer.count, instanceCount);
+            PipeLine.geometryCommandBuffer.SetGlobalBuffer(ShaderIDs.Transforms, cullingBuffers.resultBuffer);
+            PipeLine.geometryCommandBuffer.SetGlobalBuffer(ShaderIDs.VertexBuffer, cullingBuffers.vertexBuffer);
+            PipeLine.beforeImageOpaqueBuffer.SetGlobalBuffer(ShaderIDs.lastFrameMatrices, cullingBuffers.lastFrameMatricesBuffer);
+            PipeLine.beforeImageOpaqueBuffer.SetGlobalBuffer(ShaderIDs.Transforms, cullingBuffers.resultBuffer);
+            PipeLine.beforeImageOpaqueBuffer.SetGlobalBuffer(ShaderIDs.VertexBuffer, cullingBuffers.vertexBuffer);
+            PipeLine.geometryCommandBuffer.DrawProcedural(Matrix4x4.identity, proceduralMaterial, 0, MeshTopology.Triangles, cullingBuffers.vertexBuffer.count, instanceCount);
+            PipeLine.beforeImageOpaqueBuffer.DrawProcedural(Matrix4x4.identity, proceduralMaterial, 1, MeshTopology.Triangles, cullingBuffers.vertexBuffer.count, instanceCount);
 
         }
 
@@ -106,33 +98,24 @@ namespace GPUPipeline.Culling
         {
             int instanceCount = cullingBuffers.currentCullingResult;
             if (instanceCount == 0) return;
-            geometryCommandBuffer.SetGlobalBuffer(ShaderIDs.Transforms, cullingBuffers.resultBuffer);
-            geometryCommandBuffer.SetGlobalBuffer(ShaderIDs.VertexBuffer, cullingBuffers.vertexBuffer);
-            geometryCommandBuffer.DrawProcedural(Matrix4x4.identity, proceduralMaterial, 0, MeshTopology.Triangles, cullingBuffers.vertexBuffer.count, instanceCount);
+            PipeLine.geometryCommandBuffer.SetGlobalBuffer(ShaderIDs.Transforms, cullingBuffers.resultBuffer);
+            PipeLine.geometryCommandBuffer.SetGlobalBuffer(ShaderIDs.VertexBuffer, cullingBuffers.vertexBuffer);
+            PipeLine.geometryCommandBuffer.DrawProcedural(Matrix4x4.identity, proceduralMaterial, 0, MeshTopology.Triangles, cullingBuffers.vertexBuffer.count, instanceCount);
         }
 
-        public static void ClearBuffer()
-        {
-            geometryCommandBuffer.Clear();
-            motionVectorsCommandBuffer.Clear();
-            geometryCommandBuffer.SetRenderTarget(gBufferIdentifier, BuiltinRenderTextureType.CameraTarget);
-            motionVectorsCommandBuffer.SetRenderTarget(BuiltinRenderTextureType.MotionVectors, BuiltinRenderTextureType.CameraTarget);
-        }
-
-        public static void InitBuffers(ref CullingBuffers buffers, Vector3[] boundExtents, Matrix4x4[] localToWorldMatrices, Mesh mesh)
+        public static void InitBuffers(ref CullingBuffers buffers, Matrix4x4[] localToWorldMatrices, Mesh mesh)
         {
             buffers.sizeBuffer = new ComputeBuffer(1, INTSIZE);
-            buffers.allBoundBuffer = new ComputeBuffer(boundExtents.Length, Bounds.SIZE);
-            buffers.resultBuffer = new ComputeBuffer(boundExtents.Length, TRANSFORMSIZE);
+            buffers.allBoundBuffer = new ComputeBuffer(localToWorldMatrices.Length, Bounds.SIZE);
+            buffers.resultBuffer = new ComputeBuffer(localToWorldMatrices.Length, TRANSFORMSIZE);
             buffers.csmainKernel = buffers.cullingShader.FindKernel("CSMain");
             buffers.lastMatricesKernel = buffers.cullingShader.FindKernel("GetLast");
-            buffers.lastFrameMatricesBuffer = new ComputeBuffer(boundExtents.Length, MATRIXSIZE);
-            buffers.count = boundExtents.Length;
+            buffers.lastFrameMatricesBuffer = new ComputeBuffer(localToWorldMatrices.Length, MATRIXSIZE);
+            buffers.count = localToWorldMatrices.Length;
             buffers.currentCullingResult = 0;
-            Bounds[] allBounds = new Bounds[boundExtents.Length];
+            Bounds[] allBounds = new Bounds[localToWorldMatrices.Length];
             for (int i = 0; i < allBounds.Length; ++i)
             {
-                allBounds[i].extent = boundExtents[i];
                 allBounds[i].localToWorldMatrix = localToWorldMatrices[i];
             }
             buffers.allBoundBuffer.SetData(allBounds);
