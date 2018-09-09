@@ -20,6 +20,7 @@ public class RainningSystem : PipeLine
         data.shaderData.forward = box.forward;
         data.shaderData.up = box.up;
         data.shaderData.right = box.right;
+        data.shaderData.velocityBuffer = new ComputeBuffer(data.settingData.maxSize, 4);
         rend.shadowCamera = cam;
         rend.rainMaterial = new Material(Shader.Find("Unlit/RainningProcedural"));
         cam.enabled = false;
@@ -40,6 +41,22 @@ public class RainningSystem : PipeLine
         cam.useOcclusionCulling = false;
         cam.allowHDR = true;
         cam.allowMSAA = false;
+        RainPanel[] panels = new RainPanel[data.settingData.maxSize];
+        for (int i = 0; i < panels.Length; ++i)
+        {
+            panels[i].binormal = Vector3.right;
+            panels[i].normal = Vector3.forward;
+            Vector3 min = data.shaderData.position - data.shaderData.volume * 0.5f;
+            Vector3 max = data.shaderData.position + data.shaderData.volume * 0.5f;
+            panels[i].position = new Vector3(Random.Range(min.x, max.x), Random.Range(min.y, max.y), Random.Range(min.z, max.z));
+        }
+        data.shaderData.instancingBuffer.SetData(panels);
+        float[] fallDownSpeeds = new float[data.settingData.maxSize];
+        for (int i = 0; i < fallDownSpeeds.Length; ++i)
+        {
+            fallDownSpeeds[i] = Random.Range(data.settingData.fallDownVeolocity.x, data.settingData.fallDownVeolocity.y);
+        }
+        data.shaderData.velocityBuffer.SetData(fallDownSpeeds);
     }
     private static void Dispose(ref RainData data, ref RainRender rend)
     {
@@ -47,6 +64,7 @@ public class RainningSystem : PipeLine
         Destroy(rend.rainMaterial);
         Destroy(data.shaderData.shadowTexture);
         data.shaderData.instancingBuffer.Dispose();
+        data.shaderData.velocityBuffer.Dispose();
     }
     private static void SetShaderBuffer(ref RainData data, ref RainRender rend, CommandBuffer buffer)
     {
@@ -55,9 +73,9 @@ public class RainningSystem : PipeLine
         sd.SetVector(ShaderIDs._CameraState, new Vector4(-data.shaderData.up.x, -data.shaderData.up.y, -data.shaderData.up.z, rend.shadowCamera.farClipPlane));
         buffer.SetGlobalVector(ShaderIDs._CameraPos, rend.shadowCamera.transform.position);
         buffer.SetGlobalBuffer(ShaderIDs.instancingBuffer, data.shaderData.instancingBuffer);
+        buffer.SetGlobalTexture(ShaderIDs._EnvReflect, data.settingData.reflectionMap);
         sd.SetVector(ShaderIDs._CameraPos, rend.shadowCamera.transform.position);
         sd.SetBuffer(0, ShaderIDs.instancingBuffer, data.shaderData.instancingBuffer);
-        sd.SetInt(ShaderIDs._InstancingBufferCount, data.shaderData.instancingBuffer.count);
         directions[0] = data.shaderData.right;
         directions[1] = data.shaderData.forward;
         directions[2] = data.shaderData.volume;
@@ -66,8 +84,10 @@ public class RainningSystem : PipeLine
         sd.SetVector(ShaderIDs._ShadowTextureResolution, new Vector2(data.shaderData.shadowTexture.width, data.shaderData.shadowTexture.height));
         sd.SetTexture(0, ShaderIDs._ShadowTexture, data.shaderData.shadowTexture);
         sd.SetMatrix(ShaderIDs._WorldToShadowMatrix, GL.GetGPUProjectionMatrix(rend.shadowCamera.projectionMatrix, false) * rend.shadowCamera.worldToCameraMatrix);
-        sd.SetFloat(ShaderIDs._FallDownSpeed, data.settingData.fallDownVeolocity * Time.deltaTime);
+        sd.SetFloat(ShaderIDs._FallDownSpeed, Time.deltaTime);
+        sd.SetBuffer(0, ShaderIDs.velocityBuffer, data.shaderData.velocityBuffer);
         sd.SetVector(ShaderIDs._LookPos, Camera.current.transform.position);
+        sd.SetVector(ShaderIDs._FallDownRange, data.settingData.fallDownVeolocity);
     }
     private static void DrawShadow(ref RainRender rend)
     {
@@ -82,39 +102,28 @@ public class RainningSystem : PipeLine
     }
     private static void Draw(ref RainData data, ref RainRender rend, CommandBuffer buffer)
     {
-        buffer.DrawProcedural(Matrix4x4.identity, rend.rainMaterial, 0, MeshTopology.Points, 1, data.shaderData.instancingBuffer.count);
+        buffer.DrawProcedural(Matrix4x4.identity, rend.rainMaterial, 0, MeshTopology.Quads, 4, data.shaderData.instancingBuffer.count);
     }
     #endregion
     public RainData data;
     public RainRender rainRend;
     public Transform box;
-    RainPanel[] panels;
     private void Awake()
     {
         Initialize(ref data, ref rainRend, GetComponent<Camera>(), box);
-        panels = new RainPanel[data.settingData.maxSize];
-        for(int i = 0; i < panels.Length; ++i)
-        {
-            panels[i].binormal = Vector3.right;
-            panels[i].normal = Vector3.forward;
-            Vector3 min = data.shaderData.position - data.shaderData.volume;
-            Vector3 max = data.shaderData.position + data.shaderData.volume;
-            panels[i].position = new Vector3(Random.Range(min.x, max.x), Random.Range(min.y, max.y), Random.Range(min.z, max.z));
-        }
-        data.shaderData.instancingBuffer.SetData(panels);
     }
 
     public override void OnPreRenderEvent()
     {
-        SetShaderBuffer(ref data, ref rainRend, geometryCommandBuffer);
+        SetShaderBuffer(ref data, ref rainRend, beforeTransparentBuffer);
         DrawShadow(ref rainRend);
         Dispatch(ref data);
-        Draw(ref data, ref rainRend, geometryCommandBuffer);
+        Draw(ref data, ref rainRend, beforeTransparentBuffer);
     }
 
     private void OnDestroy()
     {
         Dispose(ref data, ref rainRend);
-        
+
     }
 }

@@ -1,67 +1,46 @@
 ﻿// Each #kernel tells which function to compile; you can have many kernels
-#pragma kernel CSMain
-#pragma kernel GetLast
+#pragma kernel CullMain
 #include "UnityCG.cginc"
-struct Bounds{
-    float4x4 ObjectToWorld;
-};
-struct Transform{
-    float4x4 ObjectToWorld;
-    float4x4 MVP;
-};
-float3 _Extent;
-inline float PlaneTest(float4 plane, Bounds bound){
-    float3 right = float3(bound.ObjectToWorld._m00, bound.ObjectToWorld._m10, bound.ObjectToWorld._m20);
-    float3 up = float3(bound.ObjectToWorld._m01, bound.ObjectToWorld._m11, bound.ObjectToWorld._m21);
-    float3 forward = float3(bound.ObjectToWorld._m02, bound.ObjectToWorld._m12, bound.ObjectToWorld._m22);
-    float3 position = float3(bound.ObjectToWorld._m03, bound.ObjectToWorld._m13, bound.ObjectToWorld._m23);
-    float r = dot(position, plane.xyz); 
-    float3 absNormal = float3(abs(dot(plane.xyz, right)), abs(dot(plane.xyz, up)), abs(dot(plane.xyz, forward)));
-    float f = dot(absNormal, _Extent);
-    return ((r - f) < -plane.w) ? 1 : 0;
-}
 #define PLANECOUNT 6
-//Culling Plane
 float4 planes[PLANECOUNT];
-//Bounds Input
-RWStructuredBuffer<Bounds> allBounds;
-RWStructuredBuffer<uint> sizeBuffer;//Size should be 1
-RWStructuredBuffer<Transform> Transforms;   //Size should be as same as allBounds
-uint _Count;
-float4x4 _VPMatrix;
-
-[numthreads(128, 1, 1)]
-void CSMain (uint id : SV_DispatchThreadID)
-{
-    if(id > _Count)
-    {
-        return;
-    }
+RWStructuredBuffer<float4x4> objBuffer;
+RWStructuredBuffer<uint> instanceCountBuffer;
+RWStructuredBuffer<float4x4> Transforms;
+RWStructuredBuffer<uint> allCountBuffer;
+float3 _Extent;
+uint _IndirectIndex;
+inline float PlaneTest(float4x4 ObjectToWorld, float3 extent){
+    float3 right = float3(ObjectToWorld._m00, ObjectToWorld._m10, ObjectToWorld._m20);
+    float3 up = float3(ObjectToWorld._m01, ObjectToWorld._m11, ObjectToWorld._m21);
+    float3 forward = float3(ObjectToWorld._m02, ObjectToWorld._m12, ObjectToWorld._m22);
+    float3 position = float3(ObjectToWorld._m03, ObjectToWorld._m13, ObjectToWorld._m23);
     float result = 1;
     [unroll]
-    for(int y = 0; y < PLANECOUNT; ++y){
-        result *= PlaneTest(planes[y], allBounds[id]);
+    for(int i = 0; i < PLANECOUNT; ++i)
+    {
+        float4 plane = planes[i];
+        float r = dot(position, plane.xyz); 
+        float3 absNormal = float3(abs(dot(plane.xyz, right)), abs(dot(plane.xyz, up)), abs(dot(plane.xyz, forward)));
+        float f = dot(absNormal, extent);
+        result *= ((r - f) < -plane.w) ? 1 : 0;
     }
-    if(result > 0.5){
-        int currentIndex = 0;
-        InterlockedAdd(sizeBuffer[0], 1, currentIndex);
-        float4x4 ObjectToWorld = allBounds[id].ObjectToWorld;
-        Transform trans;
-        trans.ObjectToWorld = ObjectToWorld;
-        trans.MVP = mul(_VPMatrix, ObjectToWorld);
-        Transforms[currentIndex] = trans;
-    }
+    return result;
 }
-RWStructuredBuffer<float4x4> lastFrameMatrices;
-//GroupMemoryBarrierWithGroupSync();
-float4x4 LAST_VP_MATRIX;
+uint _Count;
+
+
 [numthreads(128, 1, 1)]
-void GetLast(uint id : SV_DispatchThreadID)
+void CullMain (uint id : SV_DispatchThreadID)
 {
     if(id > _Count)
     {
         return;
     }
-    float4x4 objectToWorld =  Transforms[id].ObjectToWorld;
-    lastFrameMatrices[id] = mul(LAST_VP_MATRIX, objectToWorld);
+    float result =  PlaneTest(objBuffer[id], _Extent);
+    if(result > 0.5){
+        int currentCount;
+        InterlockedAdd(instanceCountBuffer[_IndirectIndex], 1);
+        InterlockedAdd(allCountBuffer[0], 1, currentCount);
+        Transforms[currentCount] = objBuffer[id];
+    }
 }

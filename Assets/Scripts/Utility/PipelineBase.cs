@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
-using GPUPipeline.Culling;
 
 public class PipelineBase : MonoBehaviour {
     public static List<PipeLine> onPreRenderEvents = new List<PipeLine>(10);
@@ -16,29 +15,35 @@ public class PipelineBase : MonoBehaviour {
     private Camera cam;
     private CommandBuffer geometryBuffer;
     private CommandBuffer motionVectorBuffer;
+    private CommandBuffer beforeTransparentBuffer;
     private void Awake()
     {
         cam = GetComponent<Camera>();
         geometryBuffer = new CommandBuffer();
         motionVectorBuffer = new CommandBuffer();
+        beforeTransparentBuffer = new CommandBuffer();
     }
 
     private void OnEnable()
     {
         cam.AddCommandBuffer(CameraEvent.AfterGBuffer, geometryBuffer);
         cam.AddCommandBuffer(CameraEvent.BeforeImageEffectsOpaque, motionVectorBuffer);
+        cam.AddCommandBuffer(CameraEvent.BeforeForwardAlpha, beforeTransparentBuffer);
+        
     }
 
     private void OnDisable()
     {
         cam.RemoveCommandBuffer(CameraEvent.AfterGBuffer, geometryBuffer);
         cam.RemoveCommandBuffer(CameraEvent.BeforeImageEffectsOpaque, motionVectorBuffer);
+        cam.RemoveCommandBuffer(CameraEvent.BeforeForwardAlpha, beforeTransparentBuffer);
     }
 
     private void OnDestroy()
     {
         geometryBuffer.Dispose();
         motionVectorBuffer.Dispose();
+        beforeTransparentBuffer.Dispose();
     }
 
     private void OnPreRender()
@@ -46,14 +51,16 @@ public class PipelineBase : MonoBehaviour {
         Matrix4x4 projMat = cam.projectionMatrix;
         PipeLine.projMatrix = GL.GetGPUProjectionMatrix(projMat, false);
         PipeLine.rtProjMatrix = GL.GetGPUProjectionMatrix(projMat, true);
-        PipeLine.lastVPMatrix = PipeLine.rtProjMatrix * PipeLine.viewMatrix;
         PipeLine.viewMatrix = Camera.current.worldToCameraMatrix;
-        PipeLine.geometryCommandBuffer = geometryBuffer;
-        PipeLine.beforeImageOpaqueBuffer = motionVectorBuffer;
-        PipeLine.geometryCommandBuffer.Clear();
-        PipeLine.beforeImageOpaqueBuffer.Clear();
-        PipeLine.geometryCommandBuffer.SetRenderTarget(gBufferIdentifier, BuiltinRenderTextureType.CameraTarget);
-        PipeLine.beforeImageOpaqueBuffer.SetRenderTarget(BuiltinRenderTextureType.MotionVectors, BuiltinRenderTextureType.CameraTarget);
+        PipeLine.geometryBuffer = geometryBuffer;
+        PipeLine.motionVectorBuffer = motionVectorBuffer;
+        PipeLine.beforeTransparentBuffer = beforeTransparentBuffer;
+        geometryBuffer.Clear();
+        motionVectorBuffer.Clear();
+        beforeTransparentBuffer.Clear();
+        geometryBuffer.SetRenderTarget(gBufferIdentifier, BuiltinRenderTextureType.CameraTarget);
+        motionVectorBuffer.SetRenderTarget(BuiltinRenderTextureType.MotionVectors, BuiltinRenderTextureType.CameraTarget);
+        beforeTransparentBuffer.SetRenderTarget(BuiltinRenderTextureType.CameraTarget);
         foreach (var i in onPreRenderEvents)
         {
             i.OnPreRenderEvent();

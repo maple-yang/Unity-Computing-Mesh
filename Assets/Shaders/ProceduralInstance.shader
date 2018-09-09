@@ -48,12 +48,10 @@ struct Point{
 
 struct Transform{ 
   float4x4 ObjectToWorld;
-  float4x4 MVP;
 };
 
 StructuredBuffer<Point> VertexBuffer;
 StructuredBuffer<Transform> Transforms;
-StructuredBuffer<float4x4> lastFrameMatrices;
     float4 _SpecularColor;
     float4 _EmissionColor;
 		float _NormalScale;
@@ -131,17 +129,18 @@ struct v2f_surf {
   float3 worldViewDir : TEXCOORD8;
 };
 float4 _MainTex_ST;
-
+float2 _ProceduralOffset;
 
 v2f_surf vert_surf (uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID) {
+	instanceID += _ProceduralOffset.x;
+	vertexID += _ProceduralOffset.y;
   Point v = VertexBuffer[vertexID];
   v2f_surf o;
   Transform mat = Transforms[instanceID];
   float4 vertex = float4(v.vertex, 1);
-  o.pos = mul(mat.MVP, vertex);
   o.pack0.xy = TRANSFORM_TEX(v.texcoord, _MainTex);
-
   o.worldPos = mul(mat.ObjectToWorld, vertex).xyz;
+  o.pos = mul(UNITY_MATRIX_VP, float4(o.worldPos, 1));
   float3x3 o2wNormal = (float3x3)mat.ObjectToWorld;
   o.worldNormal = mul(o2wNormal, v.normal);
   o.worldTangent =  mul(o2wNormal, v.tangent.xyz);
@@ -192,42 +191,6 @@ CGPROGRAM
 #define UNITY_PASS_DEFERRED
 ENDCG
 }
-
-Pass {
-ZWrite off
-
-CGPROGRAM
-// compile directives
-#pragma vertex vert
-#pragma fragment frag
-
-struct v2f_motionVector{
-  float4 pos : SV_POSITION;
-  float4 lastPos : TEXCOORD0;
-  float4 currentPos : TEXCOORD1;
-};
-v2f_motionVector vert (uint vertexID : SV_VertexID, uint instanceID : SV_InstanceID){
-  Transform curt = Transforms[instanceID];
-  v2f_motionVector o;
-  float4 vertex = float4(VertexBuffer[vertexID].vertex, 1);
-  o.pos = mul(curt.MVP, vertex);
-  o.currentPos = o.pos;
-  o.lastPos = mul(lastFrameMatrices[instanceID], vertex);
-  return o;
-}
-
-// fragment shader
-float2 frag (v2f_motionVector i) : SV_Target {
-    float4 hPos = float4(i.currentPos.xy, i.lastPos.xy) / float4(i.currentPos.ww, i.lastPos.ww);
-    float4 vPos = hPos * 0.5 + 0.5;
-    #if UNITY_UV_STARTS_AT_TOP
-    vPos.yw = 1 - vPos.yw;
-    #endif
-    return vPos.xy - vPos.zw;
-}
-ENDCG
-  }
-
 }
 CustomEditor "SpecularShaderEditor"
 }
